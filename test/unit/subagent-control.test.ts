@@ -107,11 +107,11 @@ describe("subagent control attention state", () => {
 	it("scales the default idle threshold for higher thinking levels", () => {
 		const defaults = resolveControlConfig();
 
-		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, now: 60_001 }), "needs_attention");
-		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, thinking: "low", now: 60_001 }), "needs_attention");
-		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, thinking: "minimal", now: 60_001 }), "needs_attention");
-		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, thinking: "high", now: 60_001 }), undefined);
-		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, thinking: "high", now: 300_001 }), "needs_attention");
+		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, now: 180_001 }), "needs_attention");
+		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, thinking: "low", now: 180_001 }), "needs_attention");
+		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, thinking: "minimal", now: 180_001 }), "needs_attention");
+		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, thinking: "high", now: 180_001 }), undefined);
+		assert.equal(deriveActivityState({ config: defaults, startedAt: 0, turnCount: 1, thinking: "high", now: 900_001 }), "needs_attention");
 	});
 
 	it("keeps explicit idle threshold overrides higher priority than thinking scale", () => {

@@ -576,27 +576,78 @@ const ACCEPTANCE_REPORT_FIELDS: Record<string, keyof AcceptanceReport> = {
 	criteria_satisfied: "criteriaSatisfied",
 	changedFiles: "changedFiles",
 	changed_files: "changedFiles",
+	modifiedFiles: "changedFiles",
+	modified_files: "changedFiles",
+	files: "changedFiles",
 	testsAddedOrUpdated: "testsAddedOrUpdated",
 	tests_added_or_updated: "testsAddedOrUpdated",
 	commandsRun: "commandsRun",
 	commands_run: "commandsRun",
+	commands: "commandsRun",
 	validationOutput: "validationOutput",
 	validation_output: "validationOutput",
 	residualRisks: "residualRisks",
 	residual_risks: "residualRisks",
+	risks: "residualRisks",
 	noStagedFiles: "noStagedFiles",
 	no_staged_files: "noStagedFiles",
 	diffSummary: "diffSummary",
 	diff_summary: "diffSummary",
 	reviewFindings: "reviewFindings",
 	review_findings: "reviewFindings",
+	findings: "reviewFindings",
 	manualNotes: "manualNotes",
 	manual_notes: "manualNotes",
 	notes: "notes",
+	summary: "notes",
+	description: "notes",
 };
+
+const TOLERATED_METADATA_FIELDS = new Set([
+	"schema_version",
+	"schemaVersion",
+	"stop_conditions",
+	"stopConditions",
+	"candidates",
+	"candidate",
+	"locks",
+	"metadata",
+	"status",
+	"oracle_verdict",
+	"verdict",
+	"oracleVerdict",
+	"verdict_summary",
+]);
 
 const CRITERION_REPORT_FIELDS = new Set(["id", "status", "evidence"]);
 const COMMAND_REPORT_FIELDS = new Set(["command", "result", "summary"]);
+
+const PASSING_STATUS_TOKENS = new Set([
+	"accepted",
+	"accepted_with_locks",
+	"accepted-with-locks",
+	"satisfied",
+	"met",
+	"complete",
+	"completed",
+	"done",
+	"pass",
+	"passed",
+	"success",
+	"succeeded",
+	"ok",
+]);
+
+const FAILING_STATUS_TOKENS = new Set([
+	"rejected",
+	"unmet",
+	"not-satisfied",
+	"not_satisfied",
+	"fail",
+	"failed",
+	"failure",
+	"incomplete",
+]);
 
 function normalizedToken(value: string): string {
 	return value.trim().toLowerCase().replace(/[\s_]+/g, "-").replace(/-+/g, "-");
@@ -669,10 +720,12 @@ function normalizeAcceptanceReportValue(value: unknown, pathLabel = ""): { value
 	}
 	if (!reportValue || typeof reportValue !== "object" || Array.isArray(reportValue)) return { value: reportValue, pathLabel: reportPath, errors };
 
+	const record = reportValue as Record<string, unknown>;
 	const normalized: Record<string, unknown> = {};
-	for (const [key, fieldValue] of Object.entries(reportValue as Record<string, unknown>)) {
+	for (const [key, fieldValue] of Object.entries(record)) {
 		const canonical = ACCEPTANCE_REPORT_FIELDS[key];
 		if (!canonical) {
+			if (TOLERATED_METADATA_FIELDS.has(key)) continue;
 			errors.push(`${pathFor(reportPath, key)}: unsupported acceptance report field`);
 			continue;
 		}
@@ -720,23 +773,80 @@ function normalizeAcceptanceReportValue(value: unknown, pathLabel = ""): { value
 				normalized[canonical] = fieldValue;
 		}
 	}
+
+	// Synthesize criteriaSatisfied or manualNotes from status / verdict if present
+	const rawStatus = typeof record.status === "string" ? record.status : undefined;
+	const rawVerdict = typeof record.oracle_verdict === "string"
+		? record.oracle_verdict
+		: typeof record.verdict === "string"
+			? record.verdict
+			: typeof record.oracleVerdict === "string"
+				? record.oracleVerdict
+				: typeof record.verdict_summary === "string"
+					? record.verdict_summary
+					: undefined;
+
+	if (rawStatus || rawVerdict) {
+		const statusToken = rawStatus ? normalizedToken(rawStatus) : undefined;
+		const isPassing = statusToken ? PASSING_STATUS_TOKENS.has(statusToken) : true;
+		const isFailing = statusToken ? FAILING_STATUS_TOKENS.has(statusToken) : false;
+
+		if (!normalized.criteriaSatisfied && (isPassing || isFailing)) {
+			normalized.criteriaSatisfied = [
+				{
+					id: "criterion-1",
+					status: isFailing ? "not-satisfied" : "satisfied",
+					evidence: rawVerdict ? `${rawStatus ?? "status"}: ${rawVerdict}` : (rawStatus ?? "Attested passed"),
+				},
+			];
+		}
+		if (!normalized.manualNotes && !normalized.notes) {
+			normalized.manualNotes = rawVerdict ? (rawStatus ? `${rawStatus}: ${rawVerdict}` : rawVerdict) : (rawStatus ?? "");
+		}
+		if (!normalized.residualRisks) {
+			normalized.residualRisks = [];
+		}
+		if (rawVerdict && !normalized.reviewFindings) {
+			normalized.reviewFindings = [rawVerdict];
+		}
+	}
+
 	return { value: normalized, pathLabel: reportPath, errors };
 }
 
 function hasGenericAcceptanceReportSignal(value: unknown): boolean {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 	const record = value as Record<string, unknown>;
-	return "criteriaSatisfied" in record && [
+	const hasCriteria = "criteriaSatisfied" in record || "criteria_satisfied" in record;
+	const hasStatusOrVerdict = "status" in record || "oracle_verdict" in record || "verdict" in record;
+	if (!hasCriteria && !hasStatusOrVerdict) return false;
+	const secondarySignals = [
 		"changedFiles",
+		"changed_files",
+		"modifiedFiles",
 		"testsAddedOrUpdated",
+		"tests_added_or_updated",
 		"commandsRun",
+		"commands_run",
+		"commands",
 		"validationOutput",
+		"validation_output",
 		"residualRisks",
+		"residual_risks",
+		"risks",
 		"noStagedFiles",
+		"no_staged_files",
 		"diffSummary",
+		"diff_summary",
 		"reviewFindings",
+		"review_findings",
+		"findings",
 		"manualNotes",
-	].some((key) => key in record);
+		"manual_notes",
+	];
+	if (hasCriteria && secondarySignals.some((key) => key in record)) return true;
+	if (hasStatusOrVerdict && (hasCriteria || secondarySignals.some((key) => key in record))) return true;
+	return false;
 }
 
 function parseReportJson(body: string): unknown {

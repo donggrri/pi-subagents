@@ -2990,7 +2990,7 @@ export async function runSubagent(
 		const step = statusPayload.steps[flatIndex];
 		if (!step) return;
 		setOptionalProperty(step, "model", model);
-		setOptionalProperty(step, "thinking", thinking);
+		setOptionalProperty(step, "thinking", thinking ?? step.thinking);
 		setOptionalProperty(step, "contextLimit", contextLimit);
 		statusPayload.lastUpdate = now;
 		writeStatusPayload();
